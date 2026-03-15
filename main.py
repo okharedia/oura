@@ -1,9 +1,10 @@
-"""Cloud Function: Oura Ring → BigQuery sync.
+"""Oura Ring → BigQuery sync.
 
 Polls all configured Oura API v2 endpoints and upserts data into BigQuery.
-Triggered by Cloud Scheduler every 6 hours.
+Run via GitHub Actions on a schedule (every 6 hours).
 """
 
+import base64
 import json
 import logging
 import os
@@ -11,7 +12,8 @@ import time
 from datetime import date, datetime, timedelta, timezone
 
 import requests
-from google.cloud import bigquery, secretmanager
+from google.cloud import bigquery
+from nacl import encoding, public
 
 import schemas
 
@@ -24,47 +26,55 @@ BASE_URL = "https://api.ouraring.com/v2/usercollection"
 DEFAULT_BACKFILL_DAYS = 730  # ~2 years
 
 
-# ── Secret Manager helpers ────────────────────────────────────────────────
+# ── GitHub secrets helpers (for token writeback after refresh) ────────────
 
-_sm_client: secretmanager.SecretManagerServiceClient | None = None
+def _gh_encrypt(public_key_b64: str, value: str) -> str:
+    """Encrypt a secret value with the repo's libsodium public key."""
+    pk = public.PublicKey(public_key_b64.encode(), encoding.Base64Encoder())
+    encrypted = public.SealedBox(pk).encrypt(value.encode())
+    return base64.b64encode(encrypted).decode()
 
-def _sm():
-    global _sm_client
-    if _sm_client is None:
-        _sm_client = secretmanager.SecretManagerServiceClient()
-    return _sm_client
-
-def _secret_path(name: str) -> str:
-    return f"projects/{PROJECT_ID}/secrets/{name}/versions/latest"
-
-def get_secret(name: str) -> str:
-    resp = _sm().access_secret_version(request={"name": _secret_path(name)})
-    return resp.payload.data.decode("utf-8")
-
-def set_secret(name: str, value: str):
-    """Add a new version of an existing secret."""
-    parent = f"projects/{PROJECT_ID}/secrets/{name}"
-    _sm().add_secret_version(
-        request={"parent": parent, "payload": {"data": value.encode("utf-8")}}
+def update_gh_secret(secret_name: str, value: str):
+    """Write an updated value to a GitHub Actions repository secret."""
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    pat = os.environ.get("GH_PAT", "")
+    if not repo or not pat:
+        log.warning("GH_PAT / GITHUB_REPOSITORY not set — skipping token writeback")
+        return
+    headers = {
+        "Authorization": f"Bearer {pat}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    key_resp = requests.get(
+        f"https://api.github.com/repos/{repo}/actions/secrets/public-key",
+        headers=headers, timeout=10,
     )
+    key_resp.raise_for_status()
+    key_data = key_resp.json()
+    encrypted = _gh_encrypt(key_data["key"], value)
+    requests.put(
+        f"https://api.github.com/repos/{repo}/actions/secrets/{secret_name}",
+        headers=headers,
+        json={"encrypted_value": encrypted, "key_id": key_data["key_id"]},
+        timeout=10,
+    ).raise_for_status()
 
 
 # ── OAuth token management ────────────────────────────────────────────────
 
 def get_tokens() -> tuple[str, str]:
-    return get_secret("oura-access-token"), get_secret("oura-refresh-token")
+    return os.environ["OURA_ACCESS_TOKEN"], os.environ["OURA_REFRESH_TOKEN"]
 
 def refresh_tokens(refresh_token: str) -> tuple[str, str]:
     """Exchange a refresh token for a new access/refresh pair."""
-    client_id = get_secret("oura-client-id")
-    client_secret = get_secret("oura-client-secret")
     resp = requests.post(
         "https://api.ouraring.com/oauth/token",
         data={
             "grant_type": "refresh_token",
             "refresh_token": refresh_token,
-            "client_id": client_id,
-            "client_secret": client_secret,
+            "client_id": os.environ["OURA_CLIENT_ID"],
+            "client_secret": os.environ["OURA_CLIENT_SECRET"],
         },
         timeout=30,
     )
@@ -72,9 +82,9 @@ def refresh_tokens(refresh_token: str) -> tuple[str, str]:
     data = resp.json()
     new_access = data["access_token"]
     new_refresh = data["refresh_token"]
-    set_secret("oura-access-token", new_access)
-    set_secret("oura-refresh-token", new_refresh)
-    log.info("Tokens refreshed successfully")
+    update_gh_secret("OURA_ACCESS_TOKEN", new_access)
+    update_gh_secret("OURA_REFRESH_TOKEN", new_refresh)
+    log.info("Tokens refreshed and written back to GitHub secrets")
     return new_access, new_refresh
 
 
@@ -331,17 +341,11 @@ def sync_all():
     return results
 
 
-# ── Cloud Function entry point ────────────────────────────────────────────
-
-def entry_point(request=None):
-    """HTTP Cloud Function entry point."""
+if __name__ == "__main__":
     results = sync_all()
     ok = sum(1 for r in results.values() if r["status"] == "ok")
     err = sum(1 for r in results.values() if r["status"] == "error")
     log.info(f"Sync complete: {ok} ok, {err} errors")
-    return {"status": "complete", "ok": ok, "errors": err, "details": results}, 200
-
-
-if __name__ == "__main__":
-    # For local testing
-    print(json.dumps(entry_point()[0], indent=2))
+    print(json.dumps({"ok": ok, "errors": err, "details": results}, indent=2))
+    if err:
+        raise SystemExit(1)

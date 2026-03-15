@@ -1,0 +1,37 @@
+name: Oura → BigQuery Sync
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # every 6 hours
+  workflow_dispatch:          # allow manual trigger
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_JSON }}
+
+      - name: Run sync
+        run: python main.py
+        env:
+          OURA_ACCESS_TOKEN:  ${{ secrets.OURA_ACCESS_TOKEN }}
+          OURA_REFRESH_TOKEN: ${{ secrets.OURA_REFRESH_TOKEN }}
+          OURA_CLIENT_ID:     ${{ secrets.OURA_CLIENT_ID }}
+          OURA_CLIENT_SECRET: ${{ secrets.OURA_CLIENT_SECRET }}
+          GCP_PROJECT_ID:     ${{ vars.GCP_PROJECT_ID }}
+          GH_PAT:             ${{ secrets.GH_PAT }}
