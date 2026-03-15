@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-time OAuth2 setup: authorizes with Oura, stores tokens in Secret Manager.
+"""One-time OAuth2 setup: authorizes with Oura, stores tokens as GitHub Actions secrets.
 
 Usage:
     1. Register an app at https://cloud.ouraring.com/oauth/applications
@@ -7,22 +7,21 @@ Usage:
     2. Set environment variables:
          export OURA_CLIENT_ID=<your_client_id>
          export OURA_CLIENT_SECRET=<your_client_secret>
-         export GCP_PROJECT_ID=<your_gcp_project>
-    3. Run: python setup_oauth.py
+    3. Ensure you're authenticated: gh auth login
+    4. Run: python setup_oauth.py
 """
 
 import os
 import subprocess
 import sys
 import webbrowser
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlencode, urlparse, parse_qs
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 
 CLIENT_ID = os.environ.get("OURA_CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("OURA_CLIENT_SECRET", "")
-PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "oura-sync")
 REDIRECT_URI = "http://localhost:8080/callback"
 SCOPES = "email personal daily heartrate workout tag session spo2"
 
@@ -30,34 +29,16 @@ AUTH_URL = "https://cloud.ouraring.com/oauth/authorize"
 TOKEN_URL = "https://api.ouraring.com/oauth/token"
 
 
-def gcloud_secret_create(name: str):
-    """Ensure a secret exists using gcloud CLI."""
-    result = subprocess.run(
-        ["gcloud", "secrets", "describe", name, "--project", PROJECT_ID],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        subprocess.run(
-            ["gcloud", "secrets", "create", name, "--project", PROJECT_ID,
-             "--replication-policy", "automatic"],
-            check=True, capture_output=True, text=True,
-        )
-        print(f"  Created secret: {name}")
-
-
-def gcloud_secret_set(name: str, value: str):
-    """Store a value as a new secret version using gcloud CLI."""
+def gh_secret_set(name: str, value: str):
+    """Store a value as a GitHub Actions secret using the gh CLI."""
     subprocess.run(
-        ["gcloud", "secrets", "versions", "add", name, "--project", PROJECT_ID,
-         "--data-file", "-"],
-        input=value, check=True, capture_output=True, text=True,
+        ["gh", "secret", "set", name, "--body", value],
+        check=True,
     )
-    print(f"  Stored: {name}")
+    print(f"  Set secret: {name}")
 
 
 class CallbackHandler(BaseHTTPRequestHandler):
-    """Handles the OAuth2 callback."""
-
     auth_code: str | None = None
 
     def do_GET(self):
@@ -102,7 +83,7 @@ def main():
     if not code:
         print("Error: No authorization code received.")
         sys.exit(1)
-    print(f"Received authorization code.")
+    print("Received authorization code.")
 
     # Step 3: Exchange code for tokens
     resp = requests.post(TOKEN_URL, data={
@@ -128,16 +109,22 @@ def main():
     info = verify.json()
     print(f"Verified: connected as {info.get('email', 'unknown')}")
 
-    # Step 5: Store in Secret Manager (via gcloud CLI)
-    print("\nStoring tokens in Secret Manager...")
-    for name in ["oura-access-token", "oura-refresh-token", "oura-client-id", "oura-client-secret"]:
-        gcloud_secret_create(name)
-    gcloud_secret_set("oura-access-token", access_token)
-    gcloud_secret_set("oura-refresh-token", refresh_token)
-    gcloud_secret_set("oura-client-id", CLIENT_ID)
-    gcloud_secret_set("oura-client-secret", CLIENT_SECRET)
+    # Step 5: Store as GitHub Actions secrets
+    print("\nStoring secrets via gh CLI...")
+    gh_secret_set("OURA_ACCESS_TOKEN", access_token)
+    gh_secret_set("OURA_REFRESH_TOKEN", refresh_token)
+    gh_secret_set("OURA_CLIENT_ID", CLIENT_ID)
+    gh_secret_set("OURA_CLIENT_SECRET", CLIENT_SECRET)
 
-    print("\nSetup complete! You can now deploy the Cloud Function.")
+    print("\nSetup complete!")
+    print("Remaining steps:")
+    print("  1. Create a GCP service account with BigQuery access and download its JSON key")
+    print("     then: gh secret set GCP_SA_JSON < key.json")
+    print("  2. Create a GitHub PAT with 'secrets' write permission")
+    print("     then: gh secret set GH_PAT --body <your-pat>")
+    print("  3. Set your GCP project ID as a repo variable:")
+    print("     gh variable set GCP_PROJECT_ID --body <your-project-id>")
+    print("  4. Run setup_bq.sh to create the BigQuery dataset and tables")
 
 
 if __name__ == "__main__":
