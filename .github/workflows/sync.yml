@@ -35,3 +35,18 @@ jobs:
           OURA_CLIENT_SECRET: ${{ secrets.OURA_CLIENT_SECRET }}
           GCP_PROJECT_ID:     ${{ vars.GCP_PROJECT_ID }}
           GH_PAT:             ${{ secrets.GH_PAT }}
+
+      - name: Notify Slack
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            EMOJI=":white_check_mark:"
+            TEXT="Oura → BigQuery sync *succeeded*."
+          else
+            EMOJI=":x:"
+            TEXT="Oura → BigQuery sync *failed*. <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+          fi
+          curl -s -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\": \"${EMOJI} ${TEXT}\"}"
