@@ -21,7 +21,8 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("oura-sync")
 
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "oura-sync")
-DATASET = "oura"
+BQ_LOCATION = os.environ.get("GCP_BQ_LOCATION", "europe-west3")
+DATASET = os.environ.get("GCP_BQ_DATASET", "oura_eu")
 BASE_URL = "https://api.ouraring.com/v2/usercollection"
 DEFAULT_BACKFILL_DAYS = 730  # ~2 years
 
@@ -95,7 +96,7 @@ _bq_client: bigquery.Client | None = None
 def _bq():
     global _bq_client
     if _bq_client is None:
-        _bq_client = bigquery.Client(project=PROJECT_ID)
+        _bq_client = bigquery.Client(project=PROJECT_ID, location=BQ_LOCATION)
     return _bq_client
 
 def get_last_sync_date(data_type: str) -> date | None:
