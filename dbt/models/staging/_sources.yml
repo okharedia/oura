@@ -1,0 +1,20 @@
+version: 2
+
+sources:
+  - name: oura
+    database: moco-jf
+    schema: oura_eu
+    description: "Oura Ring health data (EU copy)"
+    tables:
+      - name: daily_sleep
+        description: "Daily sleep scores and contributor breakdown"
+      - name: daily_activity
+        description: "Daily activity scores, steps, calories, MET minutes"
+      - name: daily_readiness
+        description: "Daily readiness scores and body temperature"
+      - name: daily_stress
+        description: "Daily stress and recovery metrics"
+      - name: sleep
+        description: "Detailed sleep session data (HR, HRV, durations)"
+      - name: workout
+        description: "Workout sessions detected by Oura"

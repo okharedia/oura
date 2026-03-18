@@ -1,0 +1,5 @@
+version: 2
+
+models:
+  - name: fct_daily_health
+    description: "Daily health metrics combining sleep, activity, readiness, stress and workouts from Oura Ring"

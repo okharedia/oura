@@ -1,0 +1,27 @@
+name: 'jellyfish_oura'
+version: '1.0.0'
+config-version: 2
+
+profile: 'jellyfish_oura'
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+vars:
+  project_id: "moco-jf"
+
+models:
+  jellyfish_oura:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: view
+    marts:
+      +materialized: table

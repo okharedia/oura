@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: stg_oura__daily_sleep
+    description: "Cleaned daily sleep scores"
+  - name: stg_oura__sleep_detail
+    description: "Detailed nightly sleep metrics (long sleep only)"
+  - name: stg_oura__daily_activity
+    description: "Cleaned daily activity metrics"
+  - name: stg_oura__daily_readiness
+    description: "Cleaned daily readiness scores"
+  - name: stg_oura__daily_stress
+    description: "Cleaned daily stress/recovery metrics"
+  - name: stg_oura__workouts
+    description: "Cleaned workout sessions"
