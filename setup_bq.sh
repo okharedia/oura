@@ -3,7 +3,7 @@
 set -euo pipefail
 
 PROJECT_ID="${GCP_PROJECT_ID:-oura-sync}"
-DATASET="oura"
+DATASET="${GCP_BQ_DATASET:-oura_eu}"
 SA_NAME="oura-sync"
 SA="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 KEY_FILE="gcp-sa-key.json"
@@ -39,7 +39,7 @@ echo "  Then delete the local key file."
 
 # Create BigQuery dataset and tables
 echo "→ Creating BigQuery dataset and tables..."
-bq mk --dataset --project_id "$PROJECT_ID" "$DATASET" 2>/dev/null || echo "  (dataset exists)"
+bq mk --dataset --location europe-west3 --project_id "$PROJECT_ID" "$DATASET" 2>/dev/null || echo "  (dataset exists)"
 
 python3 -c "
 from google.cloud import bigquery
